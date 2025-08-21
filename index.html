@@ -348,45 +348,39 @@
                 }
             }
         }
-
-        // --- SMARTEST AI WITH HEURISTIC EVALUATION ---
+        
+        // --- FINAL AI WITH CORRECTED EVALUATION LOGIC ---
         const AI_SEARCH_DEPTH = 6;
+        const AI_PLAYER = 2;
+        const HUMAN_PLAYER = 1;
 
-        function evaluateBoard(board) {
-            const aiPlayer = 2;
-            const humanPlayer = 1;
-
-            if (hasWon(board, aiPlayer)) return 1000;
-            if (hasWon(board, humanPlayer)) return -1000;
-
+        // This function ONLY calculates strategic value (heuristics). It does NOT check for wins.
+        function evaluateStrategicPosition(board) {
             let score = 0;
             for (const combination of winningCombinations) {
                 const line = [board[combination[0]], board[combination[1]], board[combination[2]]];
-                
-                const aiCount = line.filter(p => p === aiPlayer).length;
-                const humanCount = line.filter(p => p === humanPlayer).length;
+                const aiCount = line.filter(p => p === AI_PLAYER).length;
+                const humanCount = line.filter(p => p === HUMAN_PLAYER).length;
 
-                if (aiCount === 2 && humanCount === 0) {
-                    score += 100; // AI has a winning threat.
-                } else if (humanCount === 2 && aiCount === 0) {
-                    score -= 500; // Human has a winning threat, this is a high priority to block.
-                } else if (aiCount === 1 && humanCount === 0) {
-                    score += 1; // A small bonus for a potential line.
-                } else if (humanCount === 1 && aiCount === 0) {
-                    score -= 5; // A small penalty for a potential opponent line.
-                }
+                if (aiCount === 2 && humanCount === 0) score += 100;
+                else if (humanCount === 2 && aiCount === 0) score -= 500;
+                else if (aiCount === 1 && humanCount === 0) score += 1;
+                else if (humanCount === 1 && aiCount === 0) score -= 5;
             }
             return score;
         }
 
         function minimax(board, pPlaced, isMaximizing, depth) {
-            // Check the board score first. If it's a win/loss, no need to search further.
-            let score = evaluateBoard(board);
-            if (Math.abs(score) === 1000 || depth === 0) {
-                return score;
+            // Priority 1: Check for an immediate win or loss. This is a "Red Alert" check.
+            if (hasWon(board, AI_PLAYER)) return 1000 + depth;
+            if (hasWon(board, HUMAN_PLAYER)) return -1000 - depth;
+
+            // Priority 2: If the search depth is reached, evaluate the strategic position.
+            if (depth === 0) {
+                return evaluateStrategicPosition(board);
             }
 
-            const player = isMaximizing ? 2 : 1;
+            const player = isMaximizing ? AI_PLAYER : HUMAN_PLAYER;
             let bestValue = isMaximizing ? -Infinity : Infinity;
             
             if (pPlaced < 6) { // Placement Phase
@@ -410,7 +404,7 @@
                         bestValue = isMaximizing ? Math.max(bestValue, value) : Math.min(bestValue, value);
                     }
                 }
-                if (!moved) return 0; // If no moves are possible, it's a draw.
+                if (!moved) return 0;
             }
             return bestValue;
         }
@@ -419,12 +413,11 @@
             if (gameOver) return;
             let bestScore = -Infinity;
             let bestMove = null;
-            const aiPlayer = 2;
 
             if (gamePhase === 'placement') {
                 const emptySpots = boardState.reduce((acc, v, i) => v === null ? acc.concat(i) : acc, []);
                 for (const index of emptySpots) {
-                    boardState[index] = aiPlayer;
+                    boardState[index] = AI_PLAYER;
                     let score = minimax(boardState, pawnsPlaced + 1, false, AI_SEARCH_DEPTH);
                     boardState[index] = null;
                     if (score > bestScore) {
@@ -434,13 +427,13 @@
                 }
                 if (bestMove) handlePlacement(bestMove.index);
             } else { 
-                const myPawns = boardState.reduce((acc, v, i) => v === aiPlayer ? acc.concat(i) : acc, []);
+                const myPawns = boardState.reduce((acc, v, i) => v === AI_PLAYER ? acc.concat(i) : acc, []);
                 for (const from of myPawns) {
                     const validMoves = getValidMoves(from, boardState);
                     for (const to of validMoves) {
-                        boardState[to] = aiPlayer; boardState[from] = null;
+                        boardState[to] = AI_PLAYER; boardState[from] = null;
                         let score = minimax(boardState, pawnsPlaced, false, AI_SEARCH_DEPTH);
-                        boardState[from] = aiPlayer; boardState[to] = null;
+                        boardState[from] = AI_PLAYER; boardState[to] = null;
                         if (score > bestScore) {
                             bestScore = score;
                             bestMove = { from, to };
@@ -448,9 +441,9 @@
                     }
                 }
                 if (bestMove) {
-                    boardState[bestMove.to] = aiPlayer;
+                    boardState[bestMove.to] = AI_PLAYER;
                     boardState[bestMove.from] = null;
-                    if (hasWon(boardState, aiPlayer)) {
+                    if (hasWon(boardState, AI_PLAYER)) {
                         gameOver = true;
                         updateStatus();
                     } else {
