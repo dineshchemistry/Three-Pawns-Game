@@ -284,8 +284,15 @@
             if (gameMode === 'vsComputer' && currentPlayer === 2) {
                 turnText = 'Computer';
             } else if (gameMode === 'vsRemote') {
-                turnText = (currentPlayer === localPlayerNumber) ? 'Your Turn' : "Friend's Turn";
-                if (!connectionEstablished) turnText = "Waiting for connection...";
+                if (!peer || !peer.id) {
+                    turnText = "Initializing...";
+                } else if (!dataConnection) {
+                    turnText = "Share your ID or connect";
+                } else if (!connectionEstablished) {
+                    turnText = "Connecting to friend...";
+                } else {
+                    turnText = (currentPlayer === localPlayerNumber) ? 'Your Turn' : "Friend's Turn";
+                }
             }
             
             statusDisplay.style.color = currentPlayer === 1 ? PLAYER_1_COLOR : PLAYER_2_COLOR;
@@ -355,7 +362,7 @@
             if (clickedVertex !== -1) {
                 if (gamePhase === 'placement') {
                     if (boardState[clickedVertex] === null) {
-                        if (gameMode === 'vsRemote') dataConnection.send({ type: 'placement', index: clickedVertex });
+                        if (gameMode === 'vsRemote' && dataConnection) dataConnection.send({ type: 'placement', index: clickedVertex });
                         applyPlacement(clickedVertex);
                     }
                 } else { // Movement Phase
@@ -364,7 +371,7 @@
                     } else {
                         const validMoves = getValidMoves(selectedPawnIndex, boardState);
                         if (validMoves.includes(clickedVertex)) {
-                            if (gameMode === 'vsRemote') dataConnection.send({ type: 'movement', from: selectedPawnIndex, to: clickedVertex });
+                            if (gameMode === 'vsRemote' && dataConnection) dataConnection.send({ type: 'movement', from: selectedPawnIndex, to: clickedVertex });
                             applyMovement(selectedPawnIndex, clickedVertex);
                             selectedPawnIndex = -1;
                         } else {
@@ -465,43 +472,50 @@
             }
         }
 
-        // --- PEERJS MULTIPLAYER LOGIC ---
+        // --- PEERJS MULTIPLAYER LOGIC (ROBUST VERSION) ---
         function initializePeer() {
             if (peer) peer.destroy();
             peer = new Peer();
             
             peer.on('open', id => {
                 myIdDisplay.textContent = id;
+                updateStatus();
             });
 
+            // Handle incoming connection (You are the host, Player 1)
             peer.on('connection', (conn) => {
                 dataConnection = conn;
-                localPlayerNumber = 1; // You are Player 1 (receiver)
-                updateStatus(); // Show "Waiting for connection..."
+                localPlayerNumber = 1;
+                updateStatus();
                 setupConnectionListeners();
+            });
+
+            // NEW: Added error handling
+            peer.on('error', (err) => {
+                alert('An error occurred with the connection service: ' + err);
+                initGame('vsPlayer');
             });
         }
 
         function setupConnectionListeners() {
             dataConnection.on('open', () => {
-                // This event fires for the person connecting, confirming the link is ready.
-                // The connector then sends a "start" signal to the receiver.
-                dataConnection.send({ type: 'start' });
+                // This event fires for the Connector (Player 2) when the data channel is ready.
+                // We send a "start" signal to sync both games.
+                dataConnection.send({ type: 'start_game' });
                 connectionEstablished = true;
-                localPlayerNumber = 2; // You are Player 2 (connector)
                 updateStatus();
             });
 
             dataConnection.on('data', data => {
-                // Handle the start signal from the connector
-                if (data.type === 'start') {
+                // The Receiver (Player 1) gets the start signal
+                if (data.type === 'start_game') {
                     connectionEstablished = true;
-                    alert("Friend has connected! The game has started.");
+                    alert("Friend connected! Game started. You are Player 1 (Red).");
                     updateStatus();
                     return;
                 }
 
-                // Handle game moves
+                // Handle incoming game moves
                 if (data.type === 'placement') {
                     applyPlacement(data.index);
                 } else if (data.type === 'movement') {
@@ -513,13 +527,21 @@
                 alert("Friend has disconnected.");
                 initGame('vsPlayer');
             });
+
+             // NEW: Added error handling for the specific connection
+            dataConnection.on('error', (err) => {
+                alert('A connection error occurred: ' + err);
+                initGame('vsPlayer');
+            });
         }
 
         connectBtn.addEventListener('click', () => {
             const friendId = friendIdInput.value.trim();
             if (friendId) {
+                localPlayerNumber = 2; // You are the Connector, Player 2
                 dataConnection = peer.connect(friendId);
                 setupConnectionListeners();
+                updateStatus();
             }
         });
 
