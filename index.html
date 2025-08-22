@@ -144,7 +144,7 @@
         const statusDisplay = document.getElementById('status');
         const restartBtn = document.getElementById('restartBtn');
         const vsComputerBtn = document.getElementById('vsComputerBtn');
-        const remoteBtn = document.getElementById('remoteBtn'); // New button
+        const remoteBtn = document.getElementById('remoteBtn');
         const multiplayerControls = document.getElementById('multiplayer-controls');
         const myIdDisplay = document.getElementById('my-id');
         const friendIdInput = document.getElementById('friend-id-input');
@@ -179,6 +179,7 @@
         let peer;
         let dataConnection;
         let localPlayerNumber = 1;
+        let connectionEstablished = false;
 
 
         // --- Board Layout and Rules ---
@@ -249,13 +250,14 @@
             selectedPawnIndex = -1;
             gameOver = false;
             gameMode = mode;
+            connectionEstablished = false;
             
             multiplayerControls.style.display = (gameMode === 'vsRemote') ? 'block' : 'none';
 
             if (gameMode === 'vsRemote') {
                 initializePeer();
             } else if (peer) {
-                peer.destroy(); // Clean up peer connection if switching away from remote mode
+                peer.destroy();
             }
             
             updateStatus();
@@ -283,6 +285,7 @@
                 turnText = 'Computer';
             } else if (gameMode === 'vsRemote') {
                 turnText = (currentPlayer === localPlayerNumber) ? 'Your Turn' : "Friend's Turn";
+                if (!connectionEstablished) turnText = "Waiting for connection...";
             }
             
             statusDisplay.style.color = currentPlayer === 1 ? PLAYER_1_COLOR : PLAYER_2_COLOR;
@@ -341,6 +344,7 @@
         function handleInteraction(clientX, clientY) {
             if (gameOver) return;
             if (gameMode === 'vsComputer' && currentPlayer === 2) return;
+            if (gameMode === 'vsRemote' && !connectionEstablished) return;
             if (gameMode === 'vsRemote' && currentPlayer !== localPlayerNumber) return;
 
             const rect = canvas.getBoundingClientRect();
@@ -472,22 +476,40 @@
 
             peer.on('connection', (conn) => {
                 dataConnection = conn;
+                localPlayerNumber = 1; // You are Player 1 (receiver)
+                updateStatus(); // Show "Waiting for connection..."
                 setupConnectionListeners();
-                localPlayerNumber = 1; // You are Player 1
-                alert(`Friend has connected! You are Player 1 (Red).`);
-                updateStatus();
             });
         }
 
         function setupConnectionListeners() {
+            dataConnection.on('open', () => {
+                // This event fires for the person connecting, confirming the link is ready.
+                // The connector then sends a "start" signal to the receiver.
+                dataConnection.send({ type: 'start' });
+                connectionEstablished = true;
+                localPlayerNumber = 2; // You are Player 2 (connector)
+                updateStatus();
+            });
+
             dataConnection.on('data', data => {
+                // Handle the start signal from the connector
+                if (data.type === 'start') {
+                    connectionEstablished = true;
+                    alert("Friend has connected! The game has started.");
+                    updateStatus();
+                    return;
+                }
+
+                // Handle game moves
                 if (data.type === 'placement') {
                     applyPlacement(data.index);
                 } else if (data.type === 'movement') {
                     applyMovement(data.from, data.to);
                 }
             });
-             dataConnection.on('close', () => {
+
+            dataConnection.on('close', () => {
                 alert("Friend has disconnected.");
                 initGame('vsPlayer');
             });
@@ -498,9 +520,6 @@
             if (friendId) {
                 dataConnection = peer.connect(friendId);
                 setupConnectionListeners();
-                localPlayerNumber = 2; // You are Player 2
-                alert(`Connecting to friend... You are Player 2 (Green).`);
-                updateStatus();
             }
         });
 
